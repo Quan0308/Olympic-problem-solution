@@ -1,11 +1,12 @@
+const matchResults = {};
 function simulateGroupStage(groups) {
   const groupResults = {};
-  const allTeams = [];
+  const allTeams = []; // Store match results for checking head-to-head encounters
 
   // Simulate each group
   console.log(`Group Stage - Round I:\n`);
   for (const groupName in groups) {
-    const groupResult = simulateGroup(groups[groupName], groupName);
+    const groupResult = simulateGroup(groups[groupName], groupName, matchResults);
     groupResults[groupName] = groupResult;
     allTeams.push(...groupResult);
     console.log("\n");
@@ -17,7 +18,7 @@ function simulateGroupStage(groups) {
   }
 
   // Consolidate all teams from all groups and rank them
-  const sortedTeams = rankTeams(allTeams);
+  const sortedTeams = rankTeams(allTeams, matchResults);
 
   console.log("\nTeams advancing to the knockout stage:");
   const advancingTeams = sortedTeams.slice(0, 8);
@@ -31,9 +32,17 @@ function simulateGroupStage(groups) {
   return advancingTeams;
 }
 
-function simulateGroup(group, groupName) {
+function simulateGroup(group, groupName, matchResults) {
   const results = {};
-  group = group.map(team => ({ ...team, point: 0, pointsScored: 0, pointsAllowed: 0, pointDiff: 0, wins: 0, losses: 0, headToHead: {} }));
+  group = group.map(team => ({
+    ...team,
+    points: 0,
+    wins: 0,
+    losses: 0,
+    draws: 0,
+    headToHead: {},
+    pointDiff: 0
+  }));
 
   console.log(`Group ${groupName}:`);
   for (let i = 0; i < group.length; i++) {
@@ -44,12 +53,29 @@ function simulateGroup(group, groupName) {
       const key = `${firstTeam.Team} vs ${secondTeam.Team}`;
       const result = simulateMatch(firstTeam, secondTeam);
       results[key] = result;
-      firstTeam.pointsScored += result.score1;
-      firstTeam.pointsAllowed += result.score2;
-      secondTeam.pointsScored += result.score2;
-      secondTeam.pointsAllowed += result.score1;
-      firstTeam.pointDiff = firstTeam.pointsScored - firstTeam.pointsAllowed;
-      secondTeam.pointDiff = secondTeam.pointsScored - secondTeam.pointsAllowed;
+      matchResults[key] = result; // Store the match result for head-to-head check
+
+      // Update points and head-to-head results based on match result
+      if (result.winner === firstTeam) {
+        firstTeam.points += 3; // Win gives 3 points
+        firstTeam.wins += 1;
+        secondTeam.losses += 1;
+        firstTeam.headToHead[secondTeam.Team] = { pointsFor: result.score1, pointsAgainst: result.score2 };
+        secondTeam.headToHead[firstTeam.Team] = { pointsFor: result.score2, pointsAgainst: result.score1 };
+      } else if (result.winner === secondTeam) {
+        secondTeam.points += 3; // Win gives 3 points
+        secondTeam.wins += 1;
+        firstTeam.losses += 1;
+        secondTeam.headToHead[firstTeam.Team] = { pointsFor: result.score2, pointsAgainst: result.score1 };
+        firstTeam.headToHead[secondTeam.Team] = { pointsFor: result.score1, pointsAgainst: result.score2 };
+      } else {
+        firstTeam.points += 1; // Draw gives 1 point each
+        secondTeam.points += 1;
+        firstTeam.draws += 1;
+        secondTeam.draws += 1;
+        firstTeam.headToHead[secondTeam.Team] = { pointsFor: result.score1, pointsAgainst: result.score2 };
+        secondTeam.headToHead[firstTeam.Team] = { pointsFor: result.score2, pointsAgainst: result.score1 };
+      }
 
       console.log(`${firstTeam.Team} - ${secondTeam.Team} (${result.score1}:${result.score2})`);
     }
@@ -62,52 +88,42 @@ function simulateMatch(firstTeam, secondTeam) {
   const score1 = firstTeam.FIBARanking;
   const score2 = secondTeam.FIBARanking;
   let winner, loser;
+
   if (score1 > score2) {
     winner = firstTeam;
     loser = secondTeam;
-    winner.wins += 1;
   } else if (score1 < score2) {
     winner = secondTeam;
     loser = firstTeam;
-    winner.wins += 1;
   } else {
     winner = loser = null; // draw
-    firstTeam.draws += 1;
-    secondTeam.draws += 1;
-  }
-  return { winner, score1, score2 };
-}
-
-function rankByHeadToHead(teamA, teamB) {
-  const headToHeadA = teamA.headToHead[teamB.Team];
-  const headToHeadB = teamB.headToHead[teamA.Team];
-
-  if (headToHeadA && headToHeadB) {
-    return headToHeadB.pointsFor - headToHeadA.pointsFor;
-  }
-  return 0;
-}
-
-function rankTeams(teams) {
-  const firstPlace = [];
-  const secondPlace = [];
-  const thirdPlace = [];
-
-  for (let i = 0; i < teams.length; i += 3) {
-    firstPlace.push(teams[i]);
-    secondPlace.push(teams[i + 1]);
-    thirdPlace.push(teams[i + 2]);
   }
 
-  return [
-    ...rankGroupTeams(firstPlace),
-    ...rankGroupTeams(secondPlace),
-    ...rankGroupTeams(thirdPlace)
-  ];
+  return { winner, loser, score1, score2 };
 }
 
-function rankGroupTeams(teams) {
-  return teams.sort((a, b) => b.point - a.point || rankByHeadToHead(a, b) || (b.pointDiff - a.pointDiff));
+function rankTeams(teams, matchResults) {
+  // Sort teams based on points, then head-to-head results, then point difference
+  return teams.sort((a, b) => {
+    if (a.points !== b.points) return b.points - a.points;
+
+    // Handle tie-breaking by head-to-head results
+    if (a.headToHead[b.Team] && b.headToHead[a.Team]) {
+      return b.headToHead[b.Team].pointsFor - a.headToHead[a.Team].pointsFor;
+    }
+    
+    // If still tied, use point difference in head-to-head matches
+    const aPointDiff = a.headToHead[b.Team] ? a.headToHead[b.Team].pointsFor - a.headToHead[b.Team].pointsAgainst : 0;
+    const bPointDiff = b.headToHead[a.Team] ? b.headToHead[a.Team].pointsFor - b.headToHead[a.Team].pointsAgainst : 0;
+    return bPointDiff - aPointDiff;
+  });
+}
+
+function printFinalStandings(group, groupName) {
+  console.log(`\nFinal Standings for Group ${groupName} (Name - Wins/Losses/Points):`);
+  group.forEach((team, index) => {
+    console.log(`${index + 1}. ${team.Team} ${team.wins} / ${team.losses} / ${team.points}`);
+  });
 }
 
 function drawStage(advancingTeams) {
@@ -127,7 +143,6 @@ function drawStage(advancingTeams) {
   // Form quarter-final pairs
   const quarterFinalPairs = [];
   const semiFinalPairs = [];
-
   const quarterFinals = [
     { pot1: pots.D, pot2: pots.G },
     { pot1: pots.E, pot2: pots.F }
@@ -135,13 +150,15 @@ function drawStage(advancingTeams) {
 
   for (const match of quarterFinals) {
     const pair1 = drawMatchPair(match.pot1, match.pot2);
-    const pair2 = drawMatchPair(match.pot1, match.pot2);
+    const pair2 = [match.pot1.filter(team => team !== pair1[0])[0], match.pot2.filter(team => team !== pair1[1])[0]];
     quarterFinalPairs.push(pair1, pair2);
   }
 
   // Form semi-final pairs
-  semiFinalPairs.push([quarterFinalPairs[0], quarterFinalPairs[2]]);
-  semiFinalPairs.push([quarterFinalPairs[1], quarterFinalPairs[3]]);
+  for(const match of quarterFinalPairs) {
+    const pair1 = drawMatchPair([match[0]], [match[1]]);
+    semiFinalPairs.push(pair1);
+  }
 
   console.log("\nKnockout Stage:");
   quarterFinalPairs.forEach(pair => {
@@ -150,7 +167,7 @@ function drawStage(advancingTeams) {
 
   console.log("\nSemi-Final Structure:");
   semiFinalPairs.forEach((pair, index) => {
-    console.log(`Semi-Final ${index + 1}: Winner of ${pair[0][0].Team} - ${pair[0][1].Team} vs Winner of ${pair[1][0].Team} - ${pair[1][1].Team}`);
+    console.log(`Semi-Final ${index + 1}: Winner of ${pair[0].Team} vs Winner of ${pair[1].Team}`);
   });
 
   return { quarterFinalPairs, semiFinalPairs };
@@ -175,8 +192,8 @@ function drawMatchPair(pot1, pot2) {
 }
 
 function haveMetInGroupStage(team1, team2) {
-  // Logic to check if the teams have met in the group stage
-  return false; // Placeholder
+  const key = `${team1.Team} vs ${team2.Team}`;
+  return matchResults[key] || matchResults[`${team2.Team} vs ${team1.Team}`];
 }
 
 function knockoutStage(quarterFinalPairs) {
@@ -228,9 +245,10 @@ function knockoutStage(quarterFinalPairs) {
 }
 
 function simulateKnockoutMatch(team1, team2) {
-  const score1 = team1.FIBARanking
-  const score2 = team2.FIBARanking
+  const score1 = team1.FIBARanking;
+  const score2 = team2.FIBARanking;
   let winner, loser;
+
   if (score1 > score2) {
     winner = team1;
     loser = team2;
@@ -238,18 +256,12 @@ function simulateKnockoutMatch(team1, team2) {
     winner = team2;
     loser = team1;
   }
+
   return { winner, loser, score1, score2 };
 }
 
-function printFinalStandings(group, groupName) {
-  console.log(`\nFinal Standings for Group ${groupName} (Name - Wins/Losses/Points/Points Scored/Points Allowed/Point Difference):`);
-  group.forEach((team, index) => {
-    console.log(`${index + 1}. ${team.Team} ${team.wins} / ${team.losses} / ${team.point} / ${team.pointsScored} / ${team.pointsAllowed} / ${team.pointDiff > 0 ? '+' : ''}${team.pointDiff}`);
-  });
-}
-
 function Main() {
-  const groups = require("./groups.json")
+  const groups = require("./groups.json");
 
   // Step 1: Simulate Group Stage
   const advancingTeams = simulateGroupStage(groups);
