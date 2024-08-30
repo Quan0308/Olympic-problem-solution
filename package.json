@@ -1,0 +1,11 @@
+{
+  "name": "olympic-games-simulation",
+  "version": "1.0.0",
+  "description": "A simulation of a basketball tournament at the Olympic Games",
+  "main": "game.js",
+  "scripts": {
+    "start": "node game.js"
+  },
+  "author": "Your Name",
+  "license": "ISC"
+}
